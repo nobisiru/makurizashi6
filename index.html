@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#031019">
+  <title>WAVE CROWN</title>
+  <meta name="description" content="スマホで遊べるオリジナル水上モータースポーツ育成ゲーム">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app">
+    <header class="topbar">
+      <button class="brand" data-go="dock" aria-label="ホームへ"><span class="mark">≋</span><span><b>WAVE</b><small>CROWN</small></span></button>
+      <div class="player"><i>B2</i><span><small>ROOKIE 07</small><b>SHION</b></span><button id="sound" aria-label="サウンド切替">♪</button></div>
+    </header>
+
+    <section id="dock" class="screen active">
+      <article class="hero">
+        <div class="event"><b>RACE 03</b> COASTAL ROOKIE SERIES</div>
+        <div class="copy"><small>NEXT MATCH · NIGHT WATER</small><h1>蒼湾<br><span>ルーキーカップ</span></h1><p><b>3周・1,800m</b>　横風 2.4m　波高 3cm</p></div>
+        <div class="moon"></div><div class="boat hero-boat"><b>3</b></div><div class="water"></div>
+        <div class="close"><small>ENTRY CLOSE</small><b>02:18</b></div>
+      </article>
+      <div class="cards">
+        <article class="panel machine"><header><b>MACHINE 27</b><small>調子は上向き</small></header><div class="score"><b id="score">78</b><small>/100</small></div><label>出足<i><b style="width:74%"></b></i><em>74</em></label><label>伸び<i><b style="width:67%"></b></i><em>67</em></label><label>旋回<i><b style="width:81%"></b></i><em>81</em></label><button data-go="tune">整備して仕上げる　→</button></article>
+        <article class="panel season"><header><b>SEASON 1</b><small>残り8戦</small></header><p><small>CURRENT RANK</small><b>48<sup>th</sup></b><em>↑6</em></p><div><span><small>獲得賞金</small><b>¥840,000</b></span><span><small>1着率</small><b>18.2%</b></span></div><footer><i>1</i><i>4</i><i>2</i><i>5</i></footer></article>
+      </div>
+      <button class="primary" data-go="entry"><span><small>MACHINE READY</small><b>レースへ出場</b></span><i>→</i></button>
+    </section>
+
+    <section id="tune" class="screen">
+      <button class="back" data-go="dock">← DOCK</button><div class="title"><small>MACHINE 27 · FINAL SETUP</small><h2>勝つための<span>整備</span></h2></div>
+      <div class="motor-view"><div class="motor"><b>27</b></div><i class="scan"></i><small>LIVE ANALYSIS <b id="liveScore">78</b></small></div>
+      <article class="panel tune-panel"><header><b>WEIGHT BALANCE</b><span id="balanceValue">+4</span></header><input id="balance" type="range" min="40" max="68" value="54" aria-label="重量バランス"><div class="range-label"><span>出足</span><em>推奨 52–56</em><span>伸び</span></div><h3>TUNE CHIP <small>1つ装着</small></h3><div class="parts"><button data-part="launch"><i>↗</i><b>加速ピン</b><small>立ち上がり +4</small></button><button class="selected" data-part="turn"><i>⌁</i><b>旋回フィン</b><small>旋回安定 +5</small></button><button data-part="top"><i>≫</i><b>伸びノズル</b><small>最高速 +3</small></button></div></article>
+      <button class="primary" id="saveTune"><span><small>AUTO SAVE ENABLED</small><b>この整備で決定</b></span><i>✓</i></button>
+    </section>
+
+    <section id="entry" class="screen">
+      <button class="back" data-go="dock">← DOCK</button><div class="title"><small>RACE 03 · ENTRY LIST</small><h2>6艇の<span>勝負気配</span></h2></div>
+      <div id="racerList" class="racer-list"></div>
+      <div class="intel"><b>RACE INTEL</b><p>4号艇はスタート巧者。内2艇が遅れれば、1マークで先に握って攻める好機。</p></div>
+      <button class="primary" id="startRace"><span><small>TO THE START LINE</small><b>レースを開始</b></span><i>→</i></button>
+    </section>
+
+    <section id="race" class="race-screen">
+      <canvas id="raceCanvas"></canvas>
+      <div class="race-hud"><button id="exitRace">×</button><span><small>RACE 03</small><b>FINAL</b></span><span><small>LAP</small><b id="lap">1/3</b></span><span><small>POSITION</small><b id="rank">3th</b></span></div>
+      <div id="countdown" class="countdown"><small>START SEQUENCE</small><b>3</b></div>
+      <div id="raceTip" class="race-tip">スタートに合わせてスロットルを押せ</div>
+      <div class="speed"><b id="speed">0</b><small>km/h</small></div>
+      <div class="controls"><button id="left" class="steer">‹<small>INSIDE</small></button><button id="throttle" disabled><i></i><b>THROTTLE</b><small>TAP TO OPEN</small></button><button id="right" class="steer">›<small>OUTSIDE</small></button></div>
+    </section>
+
+    <section id="result" class="screen result">
+      <small>COASTAL ROOKIE SERIES · RACE 03</small><div class="place"><span>FINISH</span><b id="place">1</b><i>ST</i></div><hr><h2 id="resultMessage">初優勝。水面を制した。</h2><div class="rewards"><span><small>RACE TIME</small><b id="raceTime">36.82</b></span><span><small>PRIZE</small><b id="prize">¥320,000</b></span><span><small>FANS</small><b id="fans">+62</b></span></div><div class="result-boat boat"><b>3</b></div><button class="primary" data-go="dock"><span><small>RESULT SAVED</small><b>ドックへ戻る</b></span><i>→</i></button>
+    </section>
+
+    <nav class="nav"><button data-go="dock" class="active">⌂<small>DOCK</small></button><button data-go="tune">⌘<small>GARAGE</small></button><button>⌁<small>CAREER</small></button><button>◇<small>RECORD</small></button></nav>
+  </main>
+  <script src="game.js"></script>
+</body>
+</html>
