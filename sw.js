@@ -1,4 +1,4 @@
-const CACHE = "wave-crown-v5-camera";
+const CACHE = "wave-crown-v6-overlay-fix";
 const ASSETS = ["./","index.html","style.css","game.js","manifest.json","assets/title-race.webp","assets/icon-192.png","assets/icon-512.png"];
 self.addEventListener("install", event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting())));
 self.addEventListener("activate", event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())));
