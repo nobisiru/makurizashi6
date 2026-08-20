@@ -5,7 +5,7 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const defaultSave = {
   tune: { balance: 54, part: "turn" }, strategy: "inside", money: 840000, fans: 840,
   races: 11, wins: 2, tutorialSeen: false,
-  settings: { sound: true, haptic: true, reduceMotion: false }
+  settings: { sound: true, haptic: true, realClock: false, reduceMotion: false }
 };
 let save = structuredClone(defaultSave);
 try { save = { ...save, ...JSON.parse(localStorage.getItem("wave-crown-v4") || "{}") }; } catch (_) {}
@@ -72,9 +72,9 @@ $("#enterGame").addEventListener("click", () => {
 });
 
 const tutorialPages = [
-  ["01","ピットから始まる","ファンファーレ後に6艇が一斉にピット離れ。アクセルを押し続けて水面へ出ます。"],
+  ["01","左レバーでピット離れ","ファンファーレ後に6艇が一斉発進。左レバーを上へ握るほど加速し、放すと水の抵抗で減速します。"],
   ["02","大時計で合わせる","待機行動で進入コースと助走距離を決め、0.00〜0.99秒でスタートラインを通過します。"],
-  ["03","減速して旋回","1・2マーク手前で減速し、左へ切りながらアクセルを戻す。これを3周します。"]
+  ["03","ハンドルを360度","マーク入口でレバーを放し、右手でハンドルを左へ1回転。出口で中央へ戻しながら再加速します。"]
 ];
 let tutorialIndex = 0;
 function renderTutorial() {
@@ -91,13 +91,13 @@ $("#tutorialNext").addEventListener("click", () => {
 });
 
 function applySettings() {
-  $("#soundToggle").checked = save.settings.sound; $("#hapticToggle").checked = save.settings.haptic; $("#motionToggle").checked = save.settings.reduceMotion;
+  $("#soundToggle").checked = save.settings.sound; $("#hapticToggle").checked = save.settings.haptic; $("#realClockToggle").checked = save.settings.realClock; $("#motionToggle").checked = save.settings.reduceMotion;
   document.body.classList.toggle("reduce-motion", save.settings.reduceMotion);
 }
 applySettings();
 $("#settingsButton").addEventListener("click", () => { applySettings(); $("#settings").hidden = false; });
 $$('[data-close="settings"]').forEach((button) => button.addEventListener("click", () => $("#settings").hidden = true));
-[["soundToggle","sound"],["hapticToggle","haptic"],["motionToggle","reduceMotion"]].forEach(([id,key]) => $("#"+id).addEventListener("change", (event) => { save.settings[key] = event.target.checked; applySettings(); persist(); audio.ui(); }));
+[["soundToggle","sound"],["hapticToggle","haptic"],["realClockToggle","realClock"],["motionToggle","reduceMotion"]].forEach(([id,key]) => $("#"+id).addEventListener("change", (event) => { save.settings[key] = event.target.checked; applySettings(); persist(); audio.ui(); }));
 $("#resetSave").addEventListener("click", () => { if (confirm("整備・賞金・戦績をすべて初期化しますか？")) { localStorage.removeItem("wave-crown-v4"); location.reload(); } });
 $("#careerButton").addEventListener("click", () => toast(`SEASON 1　現在48位・残り8戦`));
 $("#recordButton").addEventListener("click", () => toast(`${save.races}戦 ${save.wins}勝　獲得賞金 ¥${save.money.toLocaleString("ja-JP")}`));
@@ -127,7 +127,13 @@ $$('[data-strategy]').forEach((button) => { button.classList.toggle("selected", 
 const canvas = $("#raceCanvas");
 const ctx = canvas.getContext("2d");
 const TAU = Math.PI * 2;
-const START_WINDOW = 16;
+const OFFICIAL_PRESTART_SECONDS = 100;
+const QUICK_PRESTART_SECONDS = 28;
+const PRESTART_ROUTE_M = 390;
+const LAP_DISTANCE_M = 600;
+const TOP_SPEED_MPS = 80 / 3.6;
+const MOTOR_IDLE_RPM = 1500;
+const MOTOR_MAX_RPM = 6600;
 const COURSE_HALF = 520;
 const COURSE_RADIUS = 150;
 const STRAIGHT = COURSE_HALF * 2;
@@ -144,11 +150,17 @@ let raceStart = 0;
 let lapStarted = 0;
 let startReaction = 0;
 let startLabel = "—";
-let steer = 0;
-let throttleHeld = false;
-let brakeHeld = false;
+let wheelTurns = 0;
+let wheelPointerId = null;
+let previousWheelAngle = null;
+let throttlePointerId = null;
+let throttleCommand = 0;
 let throttleLevel = 0;
-let brakeLevel = 0;
+let controlsEnabled = false;
+let physicsSpeedMps = 0;
+let engineOpening = 0;
+let engineRpm = MOTOR_IDLE_RPM;
+let contactUntil = 0;
 let lineTotal = 0;
 let lineSamples = 0;
 let wakeHitUntil = 0;
@@ -225,12 +237,46 @@ function setRacePhase(label) {
 }
 
 function enableControls(enabled) {
-  ["#left", "#right", "#throttle", "#brake"].forEach((id) => { $(id).disabled = !enabled; });
+  controlsEnabled = enabled;
+  $(".real-controls").classList.toggle("disabled", !enabled);
+  $("#throttleTrack").ariaDisabled = String(!enabled);
+  $("#raceWheelZone").ariaDisabled = String(!enabled);
 }
 
 function resetControlVisuals() {
-  throttleHeld = false; brakeHeld = false; throttleLevel = 0; brakeLevel = 0; steer = 0;
-  ["#left", "#right", "#throttle", "#brake"].forEach((id) => $(id).classList.remove("active"));
+  throttleCommand = 0; throttleLevel = 0; wheelTurns = 0;
+  throttlePointerId = null; wheelPointerId = null; previousWheelAngle = null;
+  renderControlVisuals();
+}
+
+function shortestAngleDelta(previousAngle, currentAngle) {
+  let delta = currentAngle - previousAngle;
+  while (delta > Math.PI) delta -= TAU;
+  while (delta < -Math.PI) delta += TAU;
+  return delta;
+}
+
+function wheelAngleFromPointer(event) {
+  const rect = $("#raceWheelZone").getBoundingClientRect();
+  return Math.atan2(event.clientY - (rect.top + rect.height / 2), event.clientX - (rect.left + rect.width / 2));
+}
+
+function throttleFromPointer(event) {
+  const rect = $("#throttleTrack").getBoundingClientRect();
+  return clamp((rect.bottom - 10 - event.clientY) / Math.max(1, rect.height - 20), 0, 1);
+}
+
+function renderControlVisuals() {
+  const percent = Math.round(throttleLevel * 100);
+  $("#throttlePercent").textContent = `${percent}%`;
+  $("#throttleTrack").ariaValueNow = String(percent);
+  $("#throttleFill").style.height = `${throttleLevel * 76}%`;
+  $("#throttleLever").style.transform = `translateY(${-throttleCommand * 78}px)`;
+  $("#raceWheel").style.transform = `rotate(${wheelTurns * 360}deg)`;
+  $("#wheelReadout").textContent = `${wheelTurns > 0 ? "+" : ""}${wheelTurns.toFixed(2)}`;
+  const magnitude = Math.abs(wheelTurns) * 50;
+  $("#wheelMeter").style.left = `${wheelTurns < 0 ? 50 - magnitude : 50}%`;
+  $("#wheelMeter").style.width = `${magnitude}%`;
 }
 
 function resetRace() {
@@ -240,10 +286,11 @@ function resetRace() {
   racePhase = "fanfare";
   startZeroAt = 0; raceStart = 0; lapStarted = 0; startReaction = 0; startLabel = "—";
   lineTotal = 0; lineSamples = 0; wakeHitUntil = 0; lastRank = 3; laps = []; particles = [];
+  physicsSpeedMps = 0; engineOpening = 0; engineRpm = MOTOR_IDLE_RPM; contactUntil = 0;
   player = { route: 0, progress: 0, lane: .42, speed: 0, leftPit: false };
   const specs = [
-    [1, .10, .097, .12, "#f4f4f0"], [2, .27, .095, .18, "#252930"],
-    [4, .60, .101, .08, "#3979e8"], [5, .77, .098, .16, "#e4d33a"], [6, .92, .094, .24, "#48aa6d"]
+    [1, .10, 18.2, .12, "#f4f4f0"], [2, .27, 17.7, .18, "#252930"],
+    [4, .60, 18.6, .08, "#3979e8"], [5, .77, 18.0, .16, "#e4d33a"], [6, .92, 17.4, .24, "#48aa6d"]
   ];
   ai = specs.map(([number, lane, raceSpeed, st, color], index) => ({
     number, lane, raceSpeed, st, color, route: -index * .006, progress: 0, speed: 0
@@ -270,7 +317,10 @@ function resetRace() {
   $("#countdown").style.display = "grid";
   $("#countdown small").textContent = "RACE FANFARE";
   $("#countdown b").textContent = "READY";
-  $("#raceTip").textContent = "ファンファーレ後、アクセルを押してピット離れ";
+  $("#raceTip").textContent = "ファンファーレ後、左レバーを握ってピット離れ";
+  $("#tempoBadge").textContent = save.settings.realClock ? "REAL CLOCK · 100s" : "QUICK CLOCK · 28s";
+  $("#tempoBadge").classList.toggle("real", save.settings.realClock);
+  $("#wheelTarget").textContent = "CENTER";
   enableControls(false);
   setRacePhase("PIT");
 }
@@ -280,12 +330,12 @@ function playFanfare(id) {
   setTimeout(() => {
     if (id !== sequenceId || racePhase !== "fanfare") return;
     racePhase = "approach";
-    startZeroAt = performance.now() + START_WINDOW * 1000;
+    startZeroAt = performance.now() + (save.settings.realClock ? OFFICIAL_PRESTART_SECONDS : QUICK_PRESTART_SECONDS) * 1000;
     previous = performance.now();
     setRacePhase("PIT OUT");
     $("#countdown small").textContent = "6 BOATS · PIT OUT";
     $("#countdown b").textContent = "GO";
-    $("#raceTip").textContent = "アクセルを押し続けてピット離れ。オレンジブイを回れ";
+    $("#raceTip").textContent = "左レバーを握ってピット離れ。オレンジブイを左回り";
     enableControls(true);
     audio.startEngine();
     haptic([25, 35, 55]);
@@ -302,84 +352,107 @@ function beginStartSequence() {
 $("#startRace").addEventListener("click", beginStartSequence);
 $("#retryRace").addEventListener("click", beginStartSequence);
 
-function bindHold(element, onStart, onEnd) {
-  element.addEventListener("pointerdown", (event) => {
-    if (element.disabled) return;
-    event.preventDefault();
-    try { element.setPointerCapture(event.pointerId); } catch (_) {}
-    element.classList.add("active");
-    onStart();
-  });
-  ["pointerup", "pointercancel", "lostpointercapture"].forEach((name) => element.addEventListener(name, (event) => {
-    event.preventDefault();
-    element.classList.remove("active");
-    onEnd();
-  }));
-}
-bindHold($("#left"), () => { steer = -1; haptic(6); }, () => { steer = $("#right").classList.contains("active") ? 1 : 0; });
-bindHold($("#right"), () => { steer = 1; haptic(6); }, () => { steer = $("#left").classList.contains("active") ? -1 : 0; });
-bindHold($("#throttle"), () => { throttleHeld = true; brakeHeld = false; $("#brake").classList.remove("active"); }, () => { throttleHeld = false; });
-bindHold($("#brake"), () => { brakeHeld = true; throttleHeld = false; $("#throttle").classList.remove("active"); }, () => { brakeHeld = false; });
+const throttleTrack = $("#throttleTrack");
+throttleTrack.addEventListener("pointerdown", (event) => {
+  if (!controlsEnabled) return;
+  event.preventDefault(); throttlePointerId = event.pointerId;
+  try { throttleTrack.setPointerCapture(event.pointerId); } catch (_) {}
+  throttleCommand = throttleFromPointer(event); haptic(5); renderControlVisuals();
+});
+throttleTrack.addEventListener("pointermove", (event) => {
+  if (event.pointerId !== throttlePointerId) return;
+  event.preventDefault(); throttleCommand = throttleFromPointer(event); renderControlVisuals();
+});
+["pointerup", "pointercancel", "lostpointercapture"].forEach((name) => throttleTrack.addEventListener(name, (event) => {
+  if (event.pointerId !== throttlePointerId) return;
+  throttlePointerId = null; throttleCommand = 0; renderControlVisuals();
+}));
+
+const wheelZone = $("#raceWheelZone");
+wheelZone.addEventListener("pointerdown", (event) => {
+  if (!controlsEnabled) return;
+  event.preventDefault(); wheelPointerId = event.pointerId; previousWheelAngle = wheelAngleFromPointer(event);
+  try { wheelZone.setPointerCapture(event.pointerId); } catch (_) {}
+  haptic(5);
+});
+wheelZone.addEventListener("pointermove", (event) => {
+  if (event.pointerId !== wheelPointerId || previousWheelAngle === null) return;
+  event.preventDefault();
+  const nextAngle = wheelAngleFromPointer(event);
+  wheelTurns = clamp(wheelTurns + shortestAngleDelta(previousWheelAngle, nextAngle) / TAU, -1, 1);
+  previousWheelAngle = nextAngle; renderControlVisuals();
+});
+["pointerup", "pointercancel", "lostpointercapture"].forEach((name) => wheelZone.addEventListener(name, (event) => {
+  if (event.pointerId !== wheelPointerId) return;
+  wheelPointerId = null; previousWheelAngle = null;
+}));
 
 addEventListener("keydown", (event) => {
   if (!["approach", "race"].includes(racePhase)) return;
-  if (event.key === "ArrowLeft") steer = -1;
-  if (event.key === "ArrowRight") steer = 1;
-  if (event.key === " " || event.key === "ArrowUp") throttleHeld = true;
-  if (event.key === "Shift" || event.key === "ArrowDown") brakeHeld = true;
+  if (event.key === "ArrowLeft") wheelTurns = clamp(wheelTurns - .05, -1, 1);
+  if (event.key === "ArrowRight") wheelTurns = clamp(wheelTurns + .05, -1, 1);
+  if (event.key === "Home") wheelTurns = 0;
+  if (event.key === " " || event.key === "ArrowUp") throttleCommand = 1;
+  if (event.key === "ArrowDown") throttleCommand = 0;
+  renderControlVisuals();
 });
 addEventListener("keyup", (event) => {
-  if (["ArrowLeft", "ArrowRight"].includes(event.key)) steer = 0;
-  if (event.key === " " || event.key === "ArrowUp") throttleHeld = false;
-  if (event.key === "Shift" || event.key === "ArrowDown") brakeHeld = false;
+  if (event.key === " " || event.key === "ArrowUp") throttleCommand = 0;
+  renderControlVisuals();
 });
 
 function positionSuffix(n) { return `${n}${n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th"}`; }
 
-function updatePedalMeter(input) {
+function updateFlowMeter(input) {
   $("#flowBar").style.width = `${Math.round(input * 100)}%`;
   $("#flowValue").textContent = Math.round(input * 100);
-  $("#throttle small").textContent = throttleHeld ? "FULL" : "HOLD";
-  $("#brake small").textContent = brakeHeld ? "ON" : "HOLD";
 }
 
 function updateControlLevels(dt) {
-  const throttleTarget = throttleHeld ? 1 : 0;
-  const brakeTarget = brakeHeld ? 1 : 0;
-  throttleLevel += clamp(throttleTarget - throttleLevel, -4.2 * dt, 7.2 * dt);
-  brakeLevel += clamp(brakeTarget - brakeLevel, -5.5 * dt, 9 * dt);
-  $("#throttle i").style.transform = `scale(${1 + throttleLevel * .18})`;
-  $("#brake i").style.transform = `scale(${1 + brakeLevel * .18})`;
+  throttleLevel += clamp(throttleCommand - throttleLevel, -4.8 * dt, 2.1 * dt);
+  renderControlVisuals();
+}
+
+function stepSpeedPhysics(dt, throttle, steeringTurns) {
+  const massKg = 162;
+  engineOpening += clamp(throttle - engineOpening, -4.8 * dt, 2.1 * dt);
+  const rpmTarget = MOTOR_IDLE_RPM + (MOTOR_MAX_RPM - MOTOR_IDLE_RPM) * Math.sqrt(Math.max(0, engineOpening));
+  engineRpm += (rpmTarget - engineRpm) * clamp(dt * 4.2, 0, 1);
+  const propulsivePowerW = 23500 * .62;
+  const thrustN = engineOpening <= .001 ? 0 : Math.min(900, propulsivePowerW / Math.max(3.5, physicsSpeedMps)) * Math.pow(engineOpening, 1.18);
+  const baseDrag = (propulsivePowerW / TOP_SPEED_MPS) / (TOP_SPEED_MPS * TOP_SPEED_MPS);
+  const steeringDrag = 1 + Math.pow(Math.abs(steeringTurns), 1.7) * .58;
+  const dragN = baseDrag * physicsSpeedMps * physicsSpeedMps * steeringDrag;
+  physicsSpeedMps = clamp(physicsSpeedMps + (thrustN - dragN) / massKg * dt, 0, TOP_SPEED_MPS * 1.03);
+  player.speed = physicsSpeedMps;
 }
 
 function updateApproach(now, dt) {
   const untilStart = (startZeroAt - now) / 1000;
   updateControlLevels(dt);
-  const input = brakeLevel > .05 ? 0 : Math.max(throttleLevel, player.leftPit ? .18 : 0);
-  const target = brakeLevel > .05 ? .026 - brakeLevel * .020 : input * .128;
-  const response = target > player.speed ? .19 : brakeLevel > .05 ? .12 + brakeLevel * .17 : .075;
-  player.speed += clamp(target - player.speed, -response * dt, response * dt);
-  player.route += player.speed * dt;
-  player.lane = clamp(player.lane + steer * .34 * dt, .04, .96);
+  const input = throttleLevel;
+  stepSpeedPhysics(dt, input, wheelTurns);
+  player.route += physicsSpeedMps / PRESTART_ROUTE_M * dt;
+  player.lane = clamp(player.lane + wheelTurns * .22 * clamp(physicsSpeedMps / 8, 0, 1) * dt, .04, .96);
   if (player.route > .035) player.leftPit = true;
   const course = clamp(Math.round(player.lane * 5) + 1, 1, 6);
   $("#courseNumber").textContent = course;
-  $("#speed").textContent = Math.round(player.speed * 560);
-  updatePedalMeter(input);
-  audio.updateEngine(Math.round(player.speed * 560), input > .55);
+  $("#speed").textContent = Math.round(physicsSpeedMps * 3.6);
+  updateFlowMeter(input);
+  audio.updateEngine(Math.round(physicsSpeedMps * 3.6), input > .55);
 
   ai.forEach((boat) => {
     const targetAt = startZeroAt + boat.st * 1000;
     const seconds = Math.max(.2, (targetAt - now) / 1000);
-    const needed = clamp((1 - boat.route) / seconds, .02, .132);
+    const needed = clamp((1 - boat.route) / seconds, .006, .055);
     boat.speed += clamp(needed - boat.speed, -.12 * dt, .16 * dt);
     boat.route += boat.speed * dt;
   });
 
   const clock = $("#startClock");
-  const remaining = Math.max(0, 1 - player.route);
-  const projectedSpeed = Math.max(.012, player.speed + (throttleLevel - brakeLevel) * .018);
-  const predictedTiming = remaining / projectedSpeed - untilStart;
+  const remainingM = Math.max(0, 1 - player.route) * PRESTART_ROUTE_M;
+  const projectedSpeed = Math.max(.4, physicsSpeedMps + (throttleCommand - throttleLevel) * 1.8);
+  const predictedTiming = remainingM / projectedSpeed - untilStart;
   const predictionText = predictedTiming < 0 ? `予測 F${Math.abs(predictedTiming).toFixed(2)}` : predictedTiming < 1 ? `予測 +${predictedTiming.toFixed(2)}` : `予測 L${predictedTiming.toFixed(2)}`;
   $("#startPrediction").textContent = predictionText;
   $("#approachProgress").style.width = `${clamp(player.route * 100, 0, 100)}%`;
@@ -399,6 +472,7 @@ function updateApproach(now, dt) {
     setRacePhase("WAITING");
     $("#raceTip").textContent = untilStart > 5 ? `待機行動：${course}コース・助走距離を調整` : "大時計を見て0.00〜0.99秒にライン通過";
   }
+  $("#wheelTarget").textContent = player.route > .75 ? "CENTER FOR START" : `COURSE ${course}`;
 
   if (player.route >= 1) {
     const timing = (now - startZeroAt) / 1000;
@@ -419,9 +493,10 @@ function launchFlyingStart(timing, now) {
   lapStarted = now;
   previous = now;
   player.progress = 0;
-  player.speed = clamp(player.speed * .82, .045, .095);
+  physicsSpeedMps = clamp(physicsSpeedMps, 5, TOP_SPEED_MPS);
+  player.speed = physicsSpeedMps;
   ai.forEach((boat) => {
-    boat.progress = clamp((timing - boat.st) * boat.raceSpeed, -.035, .035);
+    boat.progress = clamp((timing - boat.st) * boat.raceSpeed / LAP_DISTANCE_M, -.035, .035);
     boat.speed = boat.raceSpeed * .88;
   });
   setRacePhase("RACE");
@@ -436,6 +511,7 @@ function launchFlyingStart(timing, now) {
   feedback.innerHTML = `${startLabel}<small style="display:block;font-size:12px">ST ${timing.toFixed(2)}</small>`;
   feedback.classList.remove("show"); void feedback.offsetWidth; feedback.classList.add("show");
   $("#raceTip").textContent = "1マーク手前で減速。左へ切りながら再加速";
+  $("#wheelTarget").textContent = "CENTER";
   haptic(startLabel === "PERFECT" ? [35, 22, 65] : 28);
 }
 
@@ -463,7 +539,7 @@ function disqualifyRace(type, timing) {
     $("#startGrade").textContent = type;
     $("#startTime").textContent = type === "FLYING" ? `F.${String(Math.round(timing * 100)).padStart(2, "0")}` : "L";
     $("#bestLap").textContent = "—"; $("#lineScore").textContent = "—";
-    $("#coachText").textContent = type === "FLYING" ? "アクセルを戻して助走速度を落とし、0秒を待ってラインを切ろう。" : "ピット離れ後の加速を早め、十分な助走距離を確保しよう。";
+    $("#coachText").textContent = type === "FLYING" ? "スロットルレバーを戻して助走速度を落とし、0秒を待ってラインを切ろう。" : "ピット離れ後の加速を早め、十分な助走距離を確保しよう。";
     openScreen("result");
   }, 1150);
 }
@@ -471,6 +547,16 @@ function disqualifyRace(type, timing) {
 function inTurn(progress) {
   const p = ((progress % 1) + 1) % 1;
   return (p > .145 && p < .34) || (p > .645 && p < .84);
+}
+
+function turnInfo(progress) {
+  const p = ((progress % 1) + 1) % 1;
+  const start = p > .145 && p < .34 ? .145 : p > .645 && p < .84 ? .645 : null;
+  if (start === null) return { active: false, phase: 0, targetWheel: 0, targetThrottle: 1 };
+  const phase = (p - start) / .195;
+  const targetWheel = phase < .28 ? -(phase / .28) : phase < .62 ? -1 : -Math.max(0, (1 - phase) / .38);
+  const targetThrottle = phase < .2 ? .08 : phase < .52 ? .38 + (phase - .2) * .55 : .56 + (phase - .52) * .92;
+  return { active: true, phase, targetWheel, targetThrottle: clamp(targetThrottle, 0, 1) };
 }
 
 function idealLane(progress) {
@@ -497,45 +583,57 @@ function updateRace(now, dt) {
   if (racePhase === "approach") { updateApproach(now, dt); return; }
   if (racePhase !== "race") return;
   updateControlLevels(dt);
-  const input = brakeLevel > .05 ? 0 : Math.max(.24, throttleLevel);
-  const turn = inTurn(player.progress);
+  const input = throttleLevel;
+  const turn = turnInfo(player.progress);
   const ideal = idealLane(player.progress);
-  const accuracy = clamp(1 - Math.abs(player.lane - ideal) * 1.9, 0, 1);
-  const tunedTop = .103 + (save.tune.part === "top" ? .006 : 0);
-  let target = brakeLevel > .05 ? .038 - brakeLevel * .016 : .038 + input * (tunedTop - .038);
-  const steerForTurn = clamp(-steer, 0, 1);
-  if (turn) {
-    const overSpeed = Math.max(0, input - .72) * .018;
-    const noTurn = Math.max(0, .58 - steerForTurn) * .025;
-    target -= overSpeed + noTurn;
+  stepSpeedPhysics(dt, input, wheelTurns);
+  const lineAccuracy = clamp(1 - Math.abs(player.lane - ideal) * 1.8, 0, 1);
+  const wheelAccuracy = clamp(1 - Math.abs(wheelTurns - turn.targetWheel) * 1.15, 0, 1);
+  const throttleAccuracy = clamp(1 - Math.abs(input - turn.targetThrottle) * 1.05, 0, 1);
+  const controlAccuracy = turn.active ? lineAccuracy * .35 + wheelAccuracy * .4 + throttleAccuracy * .25 : lineAccuracy * .55 + wheelAccuracy * .25 + throttleAccuracy * .2;
+  const steeringAuthority = clamp(physicsSpeedMps / 7, 0, 1);
+  player.lane = clamp(player.lane + wheelTurns * (turn.active ? .075 : .04) * steeringAuthority * dt, .035, .97);
+  if (turn.active) {
+    const insufficientTurn = Math.max(0, -turn.targetWheel + wheelTurns);
+    player.lane = clamp(player.lane + insufficientTurn * .11 * dt, .035, .97);
   }
-  const acceleration = target > player.speed ? (.074 + (save.tune.part === "launch" ? .014 : 0)) : brakeLevel > .05 ? .09 + brakeLevel * .12 : .065;
-  player.speed += clamp(target - player.speed, -acceleration * dt, acceleration * dt);
-  player.lane = clamp(player.lane + steer * (turn ? .31 : .20) * dt, .035, .97);
-  const lineDrag = Math.abs(player.lane - ideal) * (turn ? .018 : .006);
+  const turnPenalty = turn.active ? (1 - wheelAccuracy) * (save.tune.part === "turn" ? 1.2 : 1.8) : Math.abs(wheelTurns) * .35;
+  const throttlePenalty = turn.active && turn.phase < .38 ? Math.max(0, input - turn.targetThrottle) * 2.4 : 0;
+  const lineDragMps = Math.abs(player.lane - ideal) * (turn.active ? 4.2 : 1.1);
   const wakeBoat = ai.find((boat) => {
     const gap = boat.progress - player.progress;
     return gap > .008 && gap < .055 && Math.abs(boat.lane - player.lane) < .13;
   });
-  const wakeDrag = wakeBoat ? .014 : 0;
+  const wakeDragMps = wakeBoat ? 2.8 : 0;
   if (wakeBoat && now > wakeHitUntil) {
     wakeHitUntil = now + 620;
-    const alert = $("#wakeAlert"); alert.classList.remove("show"); void alert.offsetWidth; alert.classList.add("show");
+    const alert = $("#wakeAlert"); alert.innerHTML = "WAKE IMPACT<small>引き波で減速</small>"; alert.classList.remove("show"); void alert.offsetWidth; alert.classList.add("show");
     $("#raceTip").textContent = `${wakeBoat.number}号艇の引き波。ラインを外して加速を戻せ`;
     haptic([18, 15, 26]);
   }
-  player.progress += Math.max(.024, player.speed - lineDrag - wakeDrag) * dt;
+  const contactBoat = ai.find((boat) => Math.abs(boat.progress - player.progress) < .006 && Math.abs(boat.lane - player.lane) < .075);
+  if (contactBoat && now > contactUntil) {
+    contactUntil = now + 700; physicsSpeedMps *= .72;
+    player.lane = clamp(player.lane + (player.lane <= contactBoat.lane ? -.06 : .06), .035, .97);
+    $("#raceTip").textContent = `${contactBoat.number}号艇と接近。安全間隔を取れ`;
+    const alert = $("#wakeAlert"); alert.innerHTML = "CONTACT<small>接近で失速</small>"; alert.classList.remove("show"); void alert.offsetWidth; alert.classList.add("show");
+    haptic([35, 18, 55]);
+  }
+  const tuneTopMps = save.tune.part === "top" ? .55 : 0;
+  const effectiveSpeedMps = Math.max(5.5, physicsSpeedMps + tuneTopMps - turnPenalty - throttlePenalty - lineDragMps - wakeDragMps);
+  player.speed = effectiveSpeedMps;
+  player.progress += effectiveSpeedMps / LAP_DISTANCE_M * dt;
   ai.forEach((boat, index) => {
     const p = ((boat.progress % 1) + 1) % 1;
     const aiTurn = inTurn(p);
-    const pace = boat.raceSpeed - (aiTurn ? .011 : 0) + Math.sin(now * .0012 + index) * .0015;
-    boat.speed += clamp(pace - boat.speed, -.07 * dt, .06 * dt);
-    boat.progress += boat.speed * dt;
+    const pace = boat.raceSpeed - (aiTurn ? 3.2 : 0) + Math.sin(now * .0012 + index) * .25;
+    boat.speed += clamp(pace - boat.speed, -4.8 * dt, 3.8 * dt);
+    boat.progress += boat.speed / LAP_DISTANCE_M * dt;
     const targetLane = aiTurn ? .13 + index * .14 : .18 + index * .15;
     boat.lane += (targetLane - boat.lane) * dt * .72;
   });
-  lineTotal += accuracy; lineSamples++;
-  if (throttleHeld && Math.random() < .58) spawnParticle();
+  lineTotal += controlAccuracy; lineSamples++;
+  if (throttleLevel > .55 && Math.random() < .58) spawnParticle();
   particles.forEach((particle) => { particle.life -= dt * .9; particle.size += dt * 5; });
   particles = particles.filter((particle) => particle.life > 0);
   const lap = Math.min(3, Math.floor(player.progress) + 1);
@@ -548,12 +646,13 @@ function updateRace(now, dt) {
   const coursePhase = ((player.progress % 1) + 1) % 1;
   setRacePhase(coursePhase < .12 ? "1M APPROACH" : coursePhase < .34 ? "1M TURN" : coursePhase < .62 ? "BACK STRAIGHT" : coursePhase < .84 ? "2M TURN" : "HOME STRAIGHT");
   $("#lap").textContent = `${lap}/3`; $("#rank").textContent = positionSuffix(rank);
-  $("#speed").textContent = Math.round(player.speed * 760);
-  updatePedalMeter(input);
-  audio.updateEngine(Math.round(player.speed * 760), input > .55);
-  $("#speedLines").classList.toggle("active", player.speed > .082 && throttleLevel > .65);
-  if (turn) $("#raceTip").textContent = brakeLevel > .18 ? "減速できている。左へ切り、出口でアクセル" : "ターン中：左を保持し、出口へ艇を向ける";
-  else if (!wakeBoat) $("#raceTip").textContent = "直線はアクセル全開。次のマーク手前で減速";
+  $("#speed").textContent = Math.round(effectiveSpeedMps * 3.6);
+  updateFlowMeter(input);
+  audio.updateEngine(Math.round(effectiveSpeedMps * 3.6), input > .55);
+  $("#speedLines").classList.toggle("active", effectiveSpeedMps > 19 && throttleLevel > .65);
+  $("#wheelTarget").textContent = turn.active ? `LEFT ${Math.round(Math.abs(turn.targetWheel) * 360)}°` : "CENTER";
+  if (turn.active) $("#raceTip").textContent = turn.phase < .28 ? "レバーを放し、ハンドルを左へ360°" : turn.phase < .62 ? "最大360°を保ち、当てレバー" : "出口へ向けてハンドルを中央へ戻す";
+  else if (!wakeBoat) $("#raceTip").textContent = "直線はスロットル全開。次のマーク手前でレバーを放す";
   if (player.progress >= 3) finishRace(rank, now);
 }
 
@@ -611,7 +710,7 @@ function aheadPoint(offset, lane) {
 function chaseCamera() {
   const point = boatPoint(player);
   const distance = racePhase === "approach" && player.route < .08 ? 82 : 112;
-  return { x: point.x - Math.cos(point.angle) * distance, y: point.y - Math.sin(point.angle) * distance, angle: point.angle + steer * .045 };
+  return { x: point.x - Math.cos(point.angle) * distance, y: point.y - Math.sin(point.angle) * distance, angle: point.angle + wheelTurns * .045 };
 }
 
 function drawWater(w, h, now) {
@@ -694,7 +793,7 @@ function drawPlayerBoat(w, h, now) {
   const bob = Math.sin(now * .012) * (1 + player.speed * 15);
   const impact = now < wakeHitUntil ? Math.sin(now * .12) * 6 : 0;
   const boatW = Math.min(132, w * .32), boatH = boatW * .63;
-  ctx.save(); ctx.translate(w / 2 + steer * 13 + impact, h * .755 + bob); ctx.rotate(steer * .09 + impact * .006);
+  ctx.save(); ctx.translate(w / 2 + wheelTurns * 13 + impact, h * .755 + bob); ctx.rotate(wheelTurns * .09 + impact * .006);
   const wake = ctx.createLinearGradient(0, boatH * .25, 0, boatH * 1.7); wake.addColorStop(0, "#f1ffffc8"); wake.addColorStop(1, "#bff7ff00"); ctx.fillStyle = wake;
   ctx.beginPath(); ctx.moveTo(-boatW * .34, boatH * .18); ctx.lineTo(-boatW * .82, boatH * 1.55); ctx.lineTo(boatW * .82, boatH * 1.55); ctx.lineTo(boatW * .34, boatH * .18); ctx.fill();
   ctx.fillStyle = "#d8393f"; ctx.beginPath(); ctx.moveTo(0, -boatH * .68); ctx.lineTo(boatW * .49, boatH * .38); ctx.lineTo(boatW * .34, boatH * .66); ctx.lineTo(-boatW * .34, boatH * .66); ctx.lineTo(-boatW * .49, boatH * .38); ctx.closePath(); ctx.fill();
@@ -716,7 +815,7 @@ function drawDock(camera, w, h) {
 function drawOnboard(w, now) {
   const insetW = Math.min(212, w * .43), insetH = Math.min(128, Math.max(92, w * .255));
   const insetX = w - insetW - 12, insetY = 76, world = boatPoint(player);
-  const camera = { x: world.x + Math.cos(world.angle) * 5, y: world.y + Math.sin(world.angle) * 5, angle: world.angle + steer * .075 };
+  const camera = { x: world.x + Math.cos(world.angle) * 5, y: world.y + Math.sin(world.angle) * 5, angle: world.angle + wheelTurns * .075 };
   const horizon = insetY + insetH * .4, focal = insetW * .72;
   ctx.save(); ctx.beginPath(); ctx.roundRect(insetX, insetY, insetW, insetH, 6); ctx.clip();
   const bg = ctx.createLinearGradient(0, insetY, 0, insetY + insetH); bg.addColorStop(0, "#0a2634"); bg.addColorStop(.39, "#356572"); bg.addColorStop(.4, "#0a3444"); bg.addColorStop(1, "#05202d"); ctx.fillStyle = bg; ctx.fillRect(insetX, insetY, insetW, insetH);
@@ -738,7 +837,7 @@ function drawOnboard(w, now) {
     ctx.fillStyle = boat.color; ctx.beginPath(); ctx.moveTo(point.x, point.y - size); ctx.lineTo(point.x + size * .7, point.y + size * .65); ctx.lineTo(point.x - size * .7, point.y + size * .65); ctx.closePath(); ctx.fill();
   });
   ctx.restore();
-  const tilt = steer * 5 + (now < wakeHitUntil ? Math.sin(now * .1) * 5 : 0); ctx.save(); ctx.translate(insetX + insetW / 2, insetY + insetH + 8); ctx.rotate(tilt * Math.PI / 180);
+  const tilt = wheelTurns * 5 + (now < wakeHitUntil ? Math.sin(now * .1) * 5 : 0); ctx.save(); ctx.translate(insetX + insetW / 2, insetY + insetH + 8); ctx.rotate(tilt * Math.PI / 180);
   ctx.fillStyle = "#d83b42"; ctx.beginPath(); ctx.moveTo(0, -insetH * .5); ctx.lineTo(insetW * .3, 0); ctx.lineTo(-insetW * .3, 0); ctx.closePath(); ctx.fill(); ctx.strokeStyle = "#ffffffaa"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, -insetH * .43); ctx.lineTo(0, -insetH * .08); ctx.stroke(); ctx.restore(); ctx.restore();
 }
 
