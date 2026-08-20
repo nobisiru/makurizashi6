@@ -1,5 +1,5 @@
-const CACHE = "wave-crown-v8-control-polish";
-const ASSETS = ["./","index.html","style.css","game.js","manifest.json","assets/title-race.webp","assets/icon-192.png","assets/icon-512.png"];
+const CACHE = "wave-crown-v10-real-race";
+const ASSETS = ["./","index.html","style.css","race-controls.css","game.js","manifest.json","assets/title-race.webp","assets/icon-192.png","assets/icon-512.png"];
 self.addEventListener("install", event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting())));
 self.addEventListener("activate", event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())));
 self.addEventListener("fetch", event => {
