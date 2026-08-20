@@ -261,6 +261,7 @@ function resetRace() {
   $("#approachProgress").style.width = "0%";
   $("#startPrediction").textContent = "予測 —";
   $("#race").classList.remove("racing");
+  $("#speedLines").classList.remove("active");
   $("#startClock").hidden = false;
   $("#startClock").className = "start-clock";
   $("#startClockValue").textContent = "—";
@@ -444,6 +445,7 @@ function disqualifyRace(type, timing) {
   resetControlVisuals();
   enableControls(false);
   audio.stopEngine();
+  $("#speedLines").classList.remove("active");
   setRacePhase(type === "FLYING" ? "F" : "L");
   const feedback = $("#startFeedback");
   feedback.style.color = "#ff5a4f";
@@ -558,6 +560,7 @@ function updateRace(now, dt) {
 function finishRace(place, now) {
   racePhase = "finished";
   resetControlVisuals(); enableControls(false); audio.result(place === 1);
+  $("#speedLines").classList.remove("active");
   const finalLap = (now - lapStarted) / 1000;
   if (finalLap > 1) laps.push(finalLap);
   const elapsed = (now - raceStart) / 1000;
