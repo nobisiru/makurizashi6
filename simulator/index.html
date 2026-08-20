@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#07141a">
+  <title>WAVE CROWN · REAL CONTROL RIG</title>
+  <link rel="stylesheet" href="simulator.css">
+</head>
+<body>
+  <main id="simulator">
+    <header class="sim-header">
+      <span><small>WAVE CROWN</small><b>REAL CONTROL RIG</b></span>
+      <em>PHASE 1 · PROVISIONAL</em>
+      <button id="reset" type="button">RESET</button>
+    </header>
+
+    <section class="water-view" aria-label="実艇操作検証水面">
+      <canvas id="water"></canvas>
+      <div class="pit-label"><i></i><span><small>START STATE</small><b>停止中のピット</b></span></div>
+      <div class="model-warning">操舵比率は映像測定前の暫定値</div>
+    </section>
+
+    <section class="telemetry" aria-label="艇の計測値">
+      <span class="primary"><small>SPEED</small><b id="speed">0.0</b><em>km/h</em></span>
+      <span><small>RPM</small><b id="rpm">1500</b></span>
+      <span><small>THROTTLE</small><b id="throttleValue">0%</b></span>
+      <span><small>WHEEL</small><b id="wheelValue">0.00</b><em>turn</em></span>
+      <span><small>MOTOR</small><b id="motorAngle">0.0°</b></span>
+      <span><small>HEADING</small><b id="heading">270.0°</b></span>
+      <span><small>POSITION</small><b id="position">0.0 / 0.0m</b></span>
+      <span><small>DISTANCE</small><b id="distance">0.0m</b></span>
+    </section>
+
+    <section class="cockpit" aria-label="実艇操作装置">
+      <div class="throttle-control">
+        <header><span><small>LEFT HAND</small><b>スロットルレバー</b></span><em id="leverPercent">0%</em></header>
+        <div id="throttleTrack" class="throttle-track" role="slider" aria-label="スロットル開度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0">
+          <i class="full">FULL</i><i class="idle">IDLE</i>
+          <div id="throttleFill"></div><button id="throttleLever" type="button" aria-label="スロットルレバー"></button>
+        </div>
+        <p>上へ握り込み、放すとレバーオフ</p>
+      </div>
+
+      <div class="steering-control">
+        <header><span><small>RIGHT HAND</small><b>操舵ハンドル</b></span><em id="steerState">CENTER</em></header>
+        <div id="wheelZone" class="wheel-zone" aria-label="操舵ハンドル。円周に沿って回転" role="application" tabindex="0">
+          <div id="wheel" class="wheel"><i></i><i></i><i></i><b></b></div>
+          <span class="center-mark"></span>
+        </div>
+        <div class="wheel-scale"><span>−1.75</span><em><i id="wheelScaleFill"></i></em><span>+1.75</span></div>
+        <p>円周をなぞり、回転量を累積</p>
+      </div>
+    </section>
+
+    <footer><span><i class="confirmed"></i>確認済み</span><span><i class="provisional"></i>暫定値</span><b>艇体 2.895m · 68–70kg / 396.9cc</b></footer>
+  </main>
+  <script type="module" src="simulator.mjs"></script>
+</body>
+</html>
