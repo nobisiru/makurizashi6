@@ -40,6 +40,7 @@
 - 選手質量: 52kg
 - モーター等搭載質量: 41kg
 - 推進効率、抗力、旋回半径、ヨー応答
+- スタートライン、ピット、各判定ゲートの水面内座標（レース場別に置換する）
 
 ## 第1段階の合格条件
 
@@ -76,5 +77,7 @@
 - https://www.boatrace.jp/owpc/pc/extra/race/21_20230523/monthly/interview.html
 - https://www.mbracer.jp/contents/boat-race/rule.html
 - https://www.boatrace.jp/owpc/pc/extra/enjoy/guide/level1/l1_01_01_03.html
+- https://www.boatrace.jp/owpc/pc/extra/enjoy/guide/jiten/16/y_148.html
+- https://www1.g-reiki.net/boatrace-toda/reiki_honbun/w596RG00000203.html
 - https://www.boatrace.jp/owpc/pc/extra/enjoy/guide/level1/l1_02_03_01.html
 - https://www.yamato-motor.co.jp/business_mainproduct/
