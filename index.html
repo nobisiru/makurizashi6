@@ -8,11 +8,12 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="WAVE CROWN">
   <title>WAVE CROWN</title>
-  <meta name="description" content="スタートと旋回ラインで勝負する、オリジナル水上モータースポーツゲーム">
+  <meta name="description" content="ピット離れ、フライングスタート、360度ハンドルで3周を戦うオリジナル水上モータースポーツゲーム">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="assets/icon-192.png">
   <link rel="preload" href="assets/title-race.webp" as="image" type="image/webp">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="race-controls.css">
 </head>
 <body>
   <div id="rotateNotice"><b>縦向きでプレイ</b><span>端末を縦に戻してください</span></div>
@@ -24,7 +25,7 @@
         <div class="logo large"><span class="logo-mark"><i></i><i></i><i></i></span><span><b>WAVE</b><em>CROWN</em></span></div>
         <p>READ THE WATER. TAKE THE CROWN.</p>
         <button id="enterGame"><span>TAP TO START</span><i>→</i></button>
-        <small>ORIGINAL WATER MOTORSPORTS GAME · v0.6</small>
+        <small>ORIGINAL WATER MOTORSPORTS GAME · v1.0</small>
       </div>
     </section>
 
@@ -90,25 +91,32 @@
       <div id="startClock" class="start-clock"><small>FLYING START</small><b id="startClockValue">—</b><em>有効 0.00–0.99</em></div>
       <div id="courseBadge" class="course-badge"><small>進入コース</small><b id="courseNumber">3</b></div>
       <div id="approachGuide" class="approach-guide"><span><small>START LINE</small><b id="startPrediction">予測 —</b></span><i><b id="approachProgress"></b><em></em></i></div>
-      <div id="raceTip" class="race-tip">ファンファーレ後、アクセルを押してピット離れ</div>
+      <div id="raceTip" class="race-tip">ファンファーレ後、左レバーを握ってピット離れ</div>
+      <div id="tempoBadge" class="tempo-badge">QUICK CLOCK</div>
       <div id="wakeAlert" class="wake-alert">WAKE IMPACT<small>引き波で減速</small></div>
       <div id="overtake" class="overtake"></div>
       <div class="speed"><b id="speed">0</b><small>km/h</small><i></i></div>
       <div class="flow"><small>FLOW</small><i><b id="flowBar"></b></i><em id="flowValue">0</em></div>
-      <div class="controls driving-controls">
-        <div class="steering-pad" aria-label="ステアリング">
-          <button id="left" class="steer" disabled>‹<small>内へ</small></button>
-          <button id="right" class="steer" disabled>›<small>外へ</small></button>
-        </div>
-        <div class="pedal-pad" aria-label="加減速">
-          <button id="brake" class="pedal brake" disabled><i></i><b>減速</b><small>HOLD</small></button>
-          <button id="throttle" class="pedal throttle" disabled><i></i><b>アクセル</b><small>HOLD</small></button>
-        </div>
+      <div class="real-controls" aria-label="実艇型操作">
+        <section class="throttle-console">
+          <header><span><small>LEFT HAND</small><b>スロットル</b></span><em id="throttlePercent">0%</em></header>
+          <div id="throttleTrack" class="throttle-track" role="slider" aria-label="スロットルレバー" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0">
+            <i id="throttleFill"></i><button id="throttleLever" type="button" aria-label="スロットルレバーの握り"></button>
+          </div>
+          <small>握って加速・放して減速</small>
+        </section>
+        <section class="wheel-console">
+          <header><span><small>RIGHT HAND</small><b>ハンドル</b></span><em id="wheelReadout">0.00</em></header>
+          <div id="raceWheelZone" class="race-wheel-zone" role="application" aria-label="360度操舵ハンドル" tabindex="0">
+            <div id="raceWheel" class="race-wheel"><i></i><i></i><i></i><b></b></div><span></span>
+          </div>
+          <div class="wheel-rule"><b id="wheelTarget">CENTER</b><span>−1.00</span><i><em id="wheelMeter"></em></i><span>+1.00</span></div>
+        </section>
       </div>
     </section>
 
-    <div id="tutorial" class="overlay" hidden><div class="tutorial-card"><div id="tutorialVisual" class="tutorial-visual">01</div><small id="tutorialStep">01 / 03</small><h2 id="tutorialTitle">ピットから始まる</h2><p id="tutorialText">ファンファーレ後に6艇が一斉にピット離れ。アクセルを押し続けて水面へ出ます。</p><div class="dots"><i class="active"></i><i></i><i></i></div><button id="tutorialNext">次へ　→</button></div></div>
-    <div id="settings" class="overlay" hidden><div class="sheet"><button class="sheet-close" data-close="settings">×</button><small>SYSTEM</small><h2>設定</h2><label><span><b>サウンド</b><small>エンジン音・効果音</small></span><input id="soundToggle" type="checkbox" checked></label><label><span><b>振動</b><small>スタート・追い抜き時</small></span><input id="hapticToggle" type="checkbox" checked></label><label><span><b>動きを抑える</b><small>画面振動と速度演出を軽減</small></span><input id="motionToggle" type="checkbox"></label><button id="resetSave" class="danger">進行データをリセット</button></div></div>
+    <div id="tutorial" class="overlay" hidden><div class="tutorial-card"><div id="tutorialVisual" class="tutorial-visual">01</div><small id="tutorialStep">01 / 03</small><h2 id="tutorialTitle">ピットから始まる</h2><p id="tutorialText">ファンファーレ後に6艇が一斉にピット離れ。左レバーを上へ握って水面へ出ます。</p><div class="dots"><i class="active"></i><i></i><i></i></div><button id="tutorialNext">次へ　→</button></div></div>
+    <div id="settings" class="overlay" hidden><div class="sheet"><button class="sheet-close" data-close="settings">×</button><small>SYSTEM</small><h2>設定</h2><label><span><b>サウンド</b><small>エンジン音・効果音</small></span><input id="soundToggle" type="checkbox" checked></label><label><span><b>振動</b><small>スタート・追い抜き時</small></span><input id="hapticToggle" type="checkbox" checked></label><label><span><b>REAL待機時計</b><small>OFFは競技順序を保った短縮モード</small></span><input id="realClockToggle" type="checkbox"></label><label><span><b>動きを抑える</b><small>画面振動と速度演出を軽減</small></span><input id="motionToggle" type="checkbox"></label><button id="resetSave" class="danger">進行データをリセット</button></div></div>
     <div id="pause" class="overlay" hidden><div class="pause-card"><small>RACE PAUSED</small><h2>一時停止</h2><button id="resumeRace">レースに戻る</button><button id="restartRace">最初からやり直す</button><button id="retireRace">レースを終了</button></div></div>
     <div id="toast" role="status"></div>
   </main>
