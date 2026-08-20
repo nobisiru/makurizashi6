@@ -17,7 +17,22 @@ const near = (actual, expected, tolerance, label) => {
 near(shortestAngleDelta(Math.PI - .05, -Math.PI + .05), .1, 1e-9, "angle unwrap forward");
 near(shortestAngleDelta(-Math.PI + .05, Math.PI - .05), -.1, 1e-9, "angle unwrap backward");
 near(accumulateWheelTurns(0, 0, Math.PI), .5, 1e-9, "half wheel turn");
-near(accumulateWheelTurns(1.7, 0, Math.PI), SPEC.steering.lockTurns, 1e-9, "wheel lock clamp");
+near(accumulateWheelTurns(.9, 0, Math.PI), SPEC.steering.lockTurns, 1e-9, "wheel lock clamp");
+assert.equal(SPEC.steering.lockTurns, 1, "turn steering lock must be one full revolution");
+assert.equal(SPEC.steering.lockDegrees, 360, "turn steering lock must be 360 degrees");
+
+let fullTurn = 0;
+let previousWheelAngle = 0;
+for (const nextWheelAngle of [Math.PI / 2, Math.PI, -Math.PI / 2, 0]) {
+  fullTurn = accumulateWheelTurns(fullTurn, previousWheelAngle, nextWheelAngle);
+  previousWheelAngle = nextWheelAngle;
+}
+near(fullTurn, 1, 1e-9, "continuous circular gesture must reach 360-degree steering lock");
+for (const nextWheelAngle of [-Math.PI / 2, -Math.PI, Math.PI / 2, 0]) {
+  fullTurn = accumulateWheelTurns(fullTurn, previousWheelAngle, nextWheelAngle);
+  previousWheelAngle = nextWheelAngle;
+}
+near(fullTurn, 0, 1e-9, "turn exit must return the wheel from 360 degrees to center");
 near(leverOpening(100, 100, 300), 1, 1e-9, "lever full");
 near(leverOpening(200, 100, 300), .5, 1e-9, "lever half");
 near(leverOpening(300, 100, 300), 0, 1e-9, "lever idle");
