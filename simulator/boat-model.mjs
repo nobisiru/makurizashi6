@@ -5,7 +5,7 @@ export const SPEC = Object.freeze({
   motor: Object.freeze({ displacementCc: 396.9, powerKw: 23.5, massKg: 41, status: "mixed" }),
   propeller: Object.freeze({ diameterM: .187, pitchM: .215, massKg: .373, status: "confirmed" }),
   pilot: Object.freeze({ massKg: 52, status: "provisional" }),
-  steering: Object.freeze({ lockTurns: 1.75, maxMotorAngleDeg: 30, status: "provisional" }),
+  steering: Object.freeze({ lockTurns: 1, lockDegrees: 360, maxMotorAngleDeg: 30, status: "design-provisional" }),
   performance: Object.freeze({ topSpeedKmh: 80, idleRpm: 1500, maxRpm: 6600, status: "mixed" })
 });
 
